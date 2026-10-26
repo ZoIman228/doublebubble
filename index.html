@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Duo Games • 2 гравці</title>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #38bdf8;
+      --accent2: #818cf8;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --x: #38bdf8;
+      --o: #f472b6;
+      --win: #4ade80;
+      --danger: #f87171;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    /* Prevent accidental text selection during play; inputs remain usable. */
+    html, body, body * {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+    input, textarea, [contenteditable="true"] {
+      -webkit-user-select: text;
+      user-select: text;
+      -webkit-touch-callout: default;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100dvh; display:flex; flex-direction:column; align-items:center;
+      padding: 12px; overflow-x:hidden;
+    }
+    h1 {
+      font-size:1.4rem; font-weight:700; margin-bottom:2px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-backdrop-filter: text; -webkit-text-fill-color:transparent;
+    }
+    .sub { color:var(--muted); font-size:0.85rem; margin-bottom:14px; text-align:center; }
+    .screen { width:100%; max-width:440px; display:none; }
+    .screen.active { display:block; }
+    .card {
+      background:var(--card); border-radius:16px; padding:18px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.3);
+    }
+    .btn {
+      display:block; width:100%; padding:13px; border:none; border-radius:12px;
+      font-size:1.05rem; font-weight:600; cursor:pointer;
+      transition:transform .15s, opacity .15s; margin-bottom:8px;
+    }
+    .btn:active { transform:scale(0.97); }
+    .btn:disabled { opacity:0.45; cursor:not-allowed; }
+    .btn-primary { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#0f172a; }
+    .btn-secondary { background:#334155; color:var(--text); }
+    .btn-danger { background:#7f1d1d; color:#fecaca; }
+    .btn-small { width:auto; padding:8px 14px; font-size:0.9rem; margin:0; display:inline-block; }
+
+    input[type=text] {
+      width:100%; padding:12px; border:2px solid #334155; border-radius:12px;
+      background:#0f172a; color:var(--text); font-size:1rem; margin-bottom:10px;
+      outline:none; text-align:center; letter-spacing:1px; text-transform:uppercase;
+    }
+    input:focus { border-color:var(--accent); }
+
+    .status { text-align:center; font-size:1.1rem; margin-bottom:12px; min-height:26px; }
+    .status.win { color:var(--win); font-weight:700; }
+
+    .room-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+    .room-btn {
+      background:#0f172a; border:2px solid #334155; border-radius:12px;
+      padding:16px 8px; color:var(--text); font-size:0.95rem; font-weight:600;
+      cursor:pointer; text-align:center;
+    }
+    .room-btn:active { transform:scale(0.97); border-color:var(--accent); }
+
+    .game-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .game-card {
+      background:#0f172a; border:2px solid #334155; border-radius:14px;
+      padding:16px 10px; text-align:center; cursor:pointer; transition:all .15s;
+    }
+    .game-card:active, .game-card.selected { border-color:var(--accent); background:#1e293b; }
+    .game-card .icon { font-size:1.8rem; margin-bottom:6px; }
+    .game-card .name { font-weight:600; font-size:0.95rem; }
+
+    .player-badge {
+      display:inline-block; padding:3px 11px; border-radius:20px;
+      font-size:0.82rem; font-weight:600; margin-bottom:6px;
+    }
+    .player-badge.x { background:rgba(56,189,248,.2); color:var(--x); }
+    .player-badge.o { background:rgba(244,114,182,.2); color:var(--o); }
+
+    .hidden { display:none !important; }
+    .info { text-align:center; color:var(--muted); font-size:0.84rem; line-height:1.4; }
+
+    .loading {
+      position:fixed; inset:0; background:rgba(15,23,42,.85);
+      display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; z-index:100;
+    }
+    .loading.hidden { display:none; }
+    .spinner {
+      width:36px; height:36px; border:3px solid #334155; border-top-color:var(--accent);
+      border-radius:50%; animation:spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ===== Game specific ===== */
+    .board-ttt {
+      display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+      max-width:280px; margin:0 auto 14px;
+    }
+    .cell-ttt {
+      aspect-ratio:1; background:#0f172a; border-radius:12px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:2.4rem; font-weight:700; cursor:pointer; border:2px solid #334155;
+    }
+    .cell-ttt.x { color:var(--x); }
+    .cell-ttt.o { color:var(--o); }
+    .cell-ttt.win { background:rgba(74,222,128,.15); border-color:var(--win); }
+    .cell-ttt.disabled { pointer-events:none; }
+
+    .board-c4 {
+      display:grid; grid-template-columns:repeat(7,1fr); gap:4px;
+      max-width:340px; margin:0 auto 14px;
+    }
+    .cell-c4 {
+      aspect-ratio:1; background:#0f172a; border-radius:50%;
+      border:2px solid #334155; cursor:pointer;
+    }
+    .cell-c4.x { background:var(--x); border-color:var(--x); }
+    .cell-c4.o { background:var(--o); border-color:var(--o); }
+    .cell-c4.win { box-shadow:0 0 0 3px var(--win); }
+
+    .rps-choices { display:flex; justify-content:center; gap:12px; margin:16px 0; }
+    .rps-btn {
+      width:80px; height:80px; border-radius:16px; border:2px solid #334155;
+      background:#0f172a; font-size:2.2rem; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .rps-btn:active { border-color:var(--accent); transform:scale(0.95); }
+    .rps-btn.selected { border-color:var(--accent); background:#1e293b; }
+    .rps-score { text-align:center; font-size:1.3rem; font-weight:700; margin:10px 0; }
+    .rps-result { text-align:center; font-size:1.1rem; min-height:28px; margin:8px 0; }
+
+    .sumo-area {
+      width:100%; max-width:320px; height:320px; margin:0 auto 14px;
+      background:#0f172a; border-radius:50%; border:4px solid #334155;
+      position:relative; overflow:hidden;
+    }
+    .sumo-player {
+      position:absolute; width:48px; height:48px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      font-weight:700; font-size:1.1rem; transform:translate(-50%,-50%);
+      transition: none;
+    }
+    .sumo-player.p1 { background:var(--x); color:#0f172a; }
+    .sumo-player.p2 { background:var(--o); color:#0f172a; }
+    .sumo-controls {
+      display:grid; grid-template-columns:repeat(3,1fr); gap:6px;
+      max-width:200px; margin:0 auto;
+    }
+    .sumo-controls .btn { padding:12px; margin:0; font-size:1.2rem; }
+
+    .chat-box { margin-top:12px; border-top:1px solid #334155; padding-top:10px; }
+    .chat-msgs {
+      height:100px; overflow-y:auto; background:#0f172a; border-radius:10px;
+      padding:8px; margin-bottom:6px; font-size:0.85rem;
+    }
+    .chat-msg { margin-bottom:4px; word-break:break-word; }
+    .chat-msg .n { font-weight:600; color:var(--accent); }
+    .chat-msg.me .n { color:var(--o); }
+    .chat-row { display:flex; gap:6px; }
+    .chat-row input {
+      flex:1; margin:0; text-align:left; letter-spacing:normal; text-transform:none; padding:10px; font-size:0.9rem;
+    }
+    .chat-row .btn { width:auto; padding:10px 14px; margin:0; }
+
+    /* ===== Duo Games polish ===== */
+    :root {
+      --bg:#080e1d; --card:rgba(19,30,52,.88); --accent:#5ee7ff;
+      --accent2:#a78bfa; --text:#f4f7ff; --muted:#a2aec8;
+      --x:#5ee7ff; --o:#fb78c9; --win:#6ee7a8; --danger:#fb7185;
+    }
+    body {
+      background:
+        radial-gradient(ellipse at 12% 0%, rgba(94,231,255,.15), transparent 34%),
+        radial-gradient(ellipse at 95% 20%, rgba(167,139,250,.18), transparent 32%),
+        linear-gradient(155deg,#080e1d 0%,#10172c 55%,#0a1020 100%);
+      padding:20px 12px 28px;
+    }
+    h1 { font-size:clamp(1.65rem,5vw,2.15rem); letter-spacing:.4px; filter:drop-shadow(0 0 22px rgba(94,231,255,.18)); }
+    .sub { margin-bottom:20px; letter-spacing:.15px; }
+    .screen { max-width:520px; animation:screenIn .24s ease both; }
+    @keyframes screenIn { from { opacity:0; transform:translateY(7px); } to { opacity:1; transform:translateY(0); } }
+    .card {
+      padding:clamp(16px,4vw,24px); border:1px solid rgba(148,163,184,.16);
+      background:linear-gradient(145deg,rgba(24,37,63,.94),rgba(15,24,43,.94));
+      box-shadow:0 18px 48px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.035);
+      backdrop-filter:blur(14px);
+    }
+    .btn { border:1px solid transparent; letter-spacing:.1px; transition:transform .16s,filter .16s,border-color .16s,background .16s; }
+    .btn:hover:not(:disabled) { filter:brightness(1.08); transform:translateY(-1px); }
+    .btn-primary { background:linear-gradient(115deg,#5ee7ff,#a78bfa); color:#091226; box-shadow:0 7px 22px rgba(94,231,255,.12); }
+    .btn-secondary { background:rgba(51,65,95,.68); border-color:rgba(148,163,184,.14); color:var(--text); }
+    .btn-danger { background:rgba(127,29,29,.5); border-color:rgba(248,113,113,.18); color:#fecaca; }
+    input[type=text], .chat-row input { border-color:rgba(148,163,184,.25); background:rgba(6,12,25,.75); }
+    input[type=text]:focus, .chat-row input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(94,231,255,.1); }
+    .room-grid { gap:10px; }
+    .room-btn {
+      position:relative; overflow:hidden; padding:17px 8px; border:1px solid rgba(148,163,184,.2);
+      background:linear-gradient(145deg,rgba(7,15,31,.9),rgba(21,34,57,.82));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.025); transition:transform .16s,border-color .16s,background .16s;
+    }
+    .room-btn::before { content:'●'; color:var(--win); font-size:.5rem; margin-right:8px; vertical-align:2px; opacity:.8; }
+    .room-btn:hover { transform:translateY(-2px); border-color:rgba(94,231,255,.62); background:#172744; }
+    .game-grid { gap:12px; }
+    .game-card {
+      min-height:112px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+      border-color:rgba(148,163,184,.19); background:linear-gradient(145deg,rgba(7,15,31,.92),rgba(21,34,57,.78));
+      transition:transform .18s,border-color .18s,box-shadow .18s,background .18s;
+    }
+    .game-card:hover, .game-card:focus-visible { transform:translateY(-3px); border-color:var(--accent); box-shadow:0 12px 28px rgba(0,0,0,.18); outline:none; }
+    .game-card .icon { filter:drop-shadow(0 4px 12px rgba(94,231,255,.15)); }
+    .status { line-height:1.4; }
+    .player-badge { border:1px solid rgba(255,255,255,.06); }
+    .chat-box { border-top-color:rgba(148,163,184,.18); }
+    .chat-msgs { border:1px solid rgba(148,163,184,.1); }
+    .sumo-area {
+      background:
+        radial-gradient(circle at center,rgba(94,231,255,.045) 0 36%,transparent 36.5%),
+        repeating-radial-gradient(circle at center,transparent 0 31px,rgba(148,163,184,.065) 32px 33px),
+        #0a1224;
+      border:5px solid #465675; box-shadow:inset 0 0 0 5px rgba(8,14,29,.75),0 12px 26px rgba(0,0,0,.22);
+      touch-action:none;
+    }
+    .sumo-player { border:2px solid rgba(255,255,255,.7); box-shadow:0 5px 16px rgba(0,0,0,.32); user-select:none; }
+    .sumo-player.p1 { background:linear-gradient(145deg,#5ee7ff,#29a9ec); }
+    .sumo-player.p2 { background:linear-gradient(145deg,#fb91d4,#e85db0); }
+    .sumo-controls .btn { min-height:46px; touch-action:none; user-select:none; }
+    .board-ttt, .board-c4, .rps-choices { user-select:none; }
+    .cell-ttt, .cell-c4, .rps-btn { transition:transform .12s,border-color .12s,filter .12s; }
+    .cell-ttt:hover, .rps-btn:hover { border-color:var(--accent); filter:brightness(1.08); }
+    .cell-ttt { background:rgba(6,12,25,.78); border-color:rgba(148,163,184,.2); }
+    .cell-c4 { background:#0a1224; border-color:#34425d; }
+    .rps-btn { background:rgba(6,12,25,.78); border-color:rgba(148,163,184,.22); }
+    .rps-btn.selected { box-shadow:0 0 0 3px rgba(94,231,255,.13); }
+    .memory-top { display:flex; justify-content:space-between; gap:8px; margin:4px 0 12px; color:var(--muted); font-size:.88rem; }
+    .memory-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; max-width:360px; margin:0 auto 12px; }
+    .memory-card {
+      aspect-ratio:1; min-width:0; border-radius:12px; border:1px solid rgba(148,163,184,.22);
+      background:linear-gradient(145deg,#142541,#0a1428); color:var(--accent); font-size:clamp(1.25rem,6vw,2rem);
+      display:flex; align-items:center; justify-content:center; cursor:pointer; transition:transform .14s,background .14s,border-color .14s;
+    }
+    .memory-card:not(:disabled):hover { transform:translateY(-2px); border-color:var(--accent); }
+    .memory-card.open { background:linear-gradient(145deg,rgba(94,231,255,.16),rgba(167,139,250,.15)); border-color:var(--accent); }
+    .memory-card.matched { background:rgba(110,231,168,.13); border-color:var(--win); cursor:default; }
+    .memory-card:disabled { opacity:1; }
+    .highcard-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; max-width:340px; margin:14px auto; }
+    .highcard-btn {
+      min-height:62px; border-radius:13px; border:1px solid rgba(148,163,184,.22); color:var(--text);
+      background:linear-gradient(145deg,#162845,#0a1428); font-size:1.3rem; font-weight:800; cursor:pointer;
+      transition:transform .14s,border-color .14s,background .14s;
+    }
+    .highcard-btn:not(:disabled):hover { transform:translateY(-2px); border-color:var(--accent); }
+    .highcard-btn.selected { border-color:var(--accent); background:rgba(94,231,255,.15); color:var(--accent); }
+    .highcard-score { text-align:center; font-size:1.15rem; font-weight:800; margin:10px 0; }
+    .highcard-result { min-height:45px; text-align:center; line-height:1.5; padding:9px; border-radius:10px; background:rgba(7,14,28,.5); color:var(--muted); }
+    @media (max-width:360px) { body { padding:14px 8px 20px; } .sumo-area { height:290px; } .room-btn { padding:14px 5px; } .memory-grid { gap:6px; } }
+  </style>
+</head>
+<body>
+  <h1>Duo Games</h1>
+  <p class="sub">2 гравці · 6 мініігор · грай із друзями онлайн</p>
+
+  <!-- LOBBY -->
+  <div id="lobby" class="screen active">
+    <div class="card">
+      <p class="info" style="margin-bottom:12px">
+        Вибери кімнату. Перший хто зайде — обирає гру.
+      </p>
+      <div class="room-grid" id="room-grid"></div>
+
+      <div style="text-align:center;color:var(--muted);font-size:0.85rem;margin:12px 0 8px">або приватна кімната</div>
+      <button class="btn btn-secondary" id="btn-create-priv">Створити приватну</button>
+      <input type="text" id="priv-code" placeholder="Код кімнати" maxlength="6">
+      <button class="btn btn-secondary" id="btn-join-priv">Приєднатися по коду</button>
+    </div>
+  </div>
+
+  <!-- WAITING / SELECT GAME -->
+  <div id="waiting" class="screen">
+    <div class="card">
+      <div class="status" id="wait-status">Очікуємо суперника...</div>
+      <div style="text-align:center;font-size:1.2rem;font-weight:700;color:var(--accent);margin:8px 0" id="room-label"></div>
+      <p class="info" id="wait-info">Друг має вибрати цю ж кімнату</p>
+      <button class="btn btn-secondary hidden" id="btn-copy">Скопіювати код</button>
+      <button class="btn btn-danger" id="btn-leave">Вийти</button>
+    </div>
+  </div>
+
+  <!-- GAME PICKER (тільки для хоста) -->
+  <div id="picker" class="screen">
+    <div class="card">
+      <div class="status">Обери гру</div>
+      <div class="game-grid" id="game-grid"></div>
+      <p class="info" style="margin-top:12px">Суперник побачить твій вибір і гра почнеться</p>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="game" class="screen">
+    <div class="card">
+      <div style="text-align:center;margin-bottom:4px">
+        <span class="player-badge" id="badge">Ти: X</span>
+        <span style="color:var(--muted);font-size:0.85rem;margin-left:8px" id="game-title"></span>
+      </div>
+      <div class="status" id="g-status">...</div>
+
+      <!-- контейнери ігор -->
+      <div id="area-ttt" class="hidden"></div>
+      <div id="area-c4" class="hidden"></div>
+      <div id="area-rps" class="hidden"></div>
+      <div id="area-sumo" class="hidden"></div>
+      <div id="area-memory" class="hidden"></div>
+      <div id="area-guess" class="hidden"></div>
+
+      <button class="btn btn-secondary hidden" id="btn-again">Грати знову</button>
+      <button class="btn btn-danger" id="btn-back-lobby" style="margin-top:8px">Вийти в лобі</button>
+
+      <div class="chat-box">
+        <div class="chat-msgs" id="chat-msgs"></div>
+        <div class="chat-row">
+          <input type="text" id="chat-in" placeholder="Повідомлення..." maxlength="100">
+          <button class="btn btn-primary" id="btn-send">➤</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="loading hidden">
+    <div class="spinner"></div>
+    <div style="color:var(--muted)">Підключення...</div>
+  </div>
+
+<script>
+// Disable accidental text selection/context menus during gameplay.
+document.addEventListener('selectstart', e => {
+  if (!e.target.closest('input, textarea, [contenteditable="true"]')) e.preventDefault();
+});
+document.addEventListener('contextmenu', e => {
+  if (!e.target.closest('input, textarea, [contenteditable="true"]')) e.preventDefault();
+});
+
+// ===================== DATA =====================
+const PUBLIC_ROOMS = [
+  {id:'duo-r1', name:'Кімната 1'},
+  {id:'duo-r2', name:'Кімната 2'},
+  {id:'duo-r3', name:'Кімната 3'},
+  {id:'duo-r4', name:'Кімната 4'},
+  {id:'duo-r5', name:'Кімната 5'},
+  {id:'duo-r6', name:'Кімната 6'},
+  {id:'duo-r7', name:'Кімната 7'},
+  {id:'duo-r8', name:'Кімната 8'},
+  {id:'duo-r9', name:'Кімната 9'},
+  {id:'duo-r10', name:'Кімната 10'},
+];
+
+const GAMES = [
+  {id:'ttt',   name:'Хрестики-нулики', icon:'❌'},
+  {id:'c4',    name:'Чотири в ряд',    icon:'🔴'},
+  {id:'rps',   name:'Камінь-Ножиці-Папір', icon:'✊'},
+  {id:'sumo',  name:'Сумо',            icon:'⭕'},
+  {id:'memory',name:'Знайди пари',      icon:'🧠'},
+  {id:'guess',name:'Вгадай число',     icon:'🔢'},
+];
+
+// ===================== STATE =====================
+let peer=null, conn=null, isHost=false, mySymbol=null;
+let currentGame=null, gameOver=false, connected=false;
+let board=null, currentTurn='X';
+let rpsMy=null, rpsOpp=null, rpsScore={X:0,O:0};
+let sumo={p1:{x:0.35,y:0.5}, p2:{x:0.65,y:0.5}, keys:{}};
+let sumoRemoteKeys={}, sumoRAF=null, sumoLastBroadcast=0;
+let memoryState=null, memoryTimer=null, memoryPending=false;
+let guessState=null, guessTimer=null;
+
+// ===================== DOM =====================
+const $ = id => document.getElementById(id);
+const lobby=$('lobby'), waiting=$('waiting'), picker=$('picker'), gameScr=$('game');
+const loading=$('loading'), roomGrid=$('room-grid'), gameGrid=$('game-grid');
+const waitStatus=$('wait-status'), roomLabel=$('room-label'), waitInfo=$('wait-info');
+const btnCopy=$('btn-copy'), badge=$('badge'), gStatus=$('g-status'), gameTitle=$('game-title');
+const btnAgain=$('btn-again'), chatMsgs=$('chat-msgs'), chatIn=$('chat-in');
+
+function show(scr){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); scr.classList.add('active'); }
+function load(v){ loading.classList.toggle('hidden',!v); }
+
+// ===================== LOBBY UI =====================
+PUBLIC_ROOMS.forEach(r=>{
+  const b=document.createElement('button');
+  b.className='room-btn'; b.textContent=r.name;
+  b.onclick=()=>enterRoom(r);
+  roomGrid.appendChild(b);
+});
+
+GAMES.forEach(g=>{
+  const d=document.createElement('div');
+  d.className='game-card';
+  d.innerHTML=`<div class="icon">${g.icon}</div><div class="name">${g.name}</div>`;
+  d.onclick=()=>selectGame(g.id);
+  gameGrid.appendChild(d);
+});
+
+// ===================== CONNECTION =====================
+function enterRoom(room){
+  load(true);
+  peer = new Peer(room.id, {debug:0});
+  peer.on('open', ()=>{
+    isHost=true; mySymbol='X';
+    load(false);
+    roomLabel.textContent=room.name;
+    waitStatus.textContent='Очікуємо суперника...';
+    waitInfo.textContent='Друг має вибрати цю ж кімнату';
+    btnCopy.classList.add('hidden');
+    show(waiting);
+    peer.on('connection', c=>{ if(conn)return; conn=c; onConnected(); });
+  });
+  peer.on('error', err=>{
+    if(err.type==='unavailable-id'){
+      peer.destroy();
+      joinClient(room.id, room.name);
+    } else {
+      load(false);
+      alert('Помилка: '+err.type);
+    }
+  });
+}
+
+function joinClient(hostId, name){
+  peer = new Peer({debug:0});
+  peer.on('open', ()=>{
+    conn = peer.connect(hostId,{reliable:true});
+    isHost=false; mySymbol='O';
+    const t=setTimeout(()=>{ load(false); alert('Не вдалося підключитися'); peer.destroy(); },9000);
+    conn.on('open', ()=>{ clearTimeout(t); load(false); onConnected(); });
+    conn.on('error', ()=>{ clearTimeout(t); load(false); alert('Помилка з\'єднання'); });
+  });
+}
+
+function genCode(){
+  const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s=''; for(let i=0;i<5;i++) s+=c[Math.floor(Math.random()*c.length)];
+  return s;
+}
+
+$('btn-create-priv').onclick=()=>{
+  load(true);
+  const code=genCode();
+  peer=new Peer(code,{debug:0});
+  peer.on('open', id=>{
+    isHost=true; mySymbol='X';
+    load(false);
+    roomLabel.textContent='Код: '+id;
+    waitStatus.textContent='Очікуємо...';
+    waitInfo.textContent='Скинь код другу';
+    btnCopy.classList.remove('hidden');
+    btnCopy.onclick=()=>{ navigator.clipboard.writeText(id); btnCopy.textContent='Скопійовано!'; setTimeout(()=>btnCopy.textContent='Скопіювати код',1500); };
+    show(waiting);
+    peer.on('connection', c=>{ if(conn)return; conn=c; onConnected(); });
+  });
+  peer.on('error', e=>{ load(false); alert(e.type); });
+};
+
+$('btn-join-priv').onclick=()=>{
+  const code=$('priv-code').value.trim().toUpperCase();
+  if(!code) return alert('Введи код');
+  load(true);
+  joinClient(code, 'Приватна');
+};
+
+$('btn-leave').onclick=()=>{ if(peer)peer.destroy(); conn=null; show(lobby); };
+
+function onConnected(){
+  connected=true;
+  if(isHost){
+    show(picker);
+  } else {
+    waitStatus.textContent='Очікуємо вибір гри господарем...';
+    show(waiting);
+  }
+  conn.on('data', onData);
+  conn.on('close', ()=>{
+    gStatus.textContent='Суперник вийшов';
+    gameOver=true;
+    connected=false;
+    stopSumo();
+    if(memoryTimer) clearTimeout(memoryTimer);
+    if(guessTimer) clearTimeout(guessTimer);
+  });
+}
+
+// ===================== GAME SELECT =====================
+function selectGame(id){
+  if(!isHost) return;
+  send({type:'selectGame', game:id});
+  startGame(id);
+}
+
+function startGame(id){
+  if(memoryTimer) clearTimeout(memoryTimer);
+  if(guessTimer) clearTimeout(guessTimer);
+  memoryTimer=null; guessTimer=null;
+  memoryState=null; memoryPending=false;
+  guessState=null;
+  currentGame=id;
+  gameOver=false;
+  board=null;
+  currentTurn='X';
+  rpsMy=null; rpsOpp=null; rpsScore={X:0,O:0};
+  stopSumo();
+
+  // hide all areas
+  ['area-ttt','area-c4','area-rps','area-sumo','area-memory','area-guess'].forEach(a=>$(a).classList.add('hidden'));
+
+  badge.textContent='Ти: '+mySymbol;
+  badge.className='player-badge '+(mySymbol==='X'?'x':'o');
+  const g=GAMES.find(x=>x.id===id);
+  gameTitle.textContent=g?g.name:'';
+  btnAgain.classList.add('hidden');
+  show(gameScr);
+
+  if(id==='ttt') initTTT();
+  else if(id==='c4') initC4();
+  else if(id==='rps') initRPS();
+  else if(id==='sumo') initSumo();
+  else if(id==='memory') initMemory();
+  else if(id==='guess') initGuess();
+}
+
+// ===================== NETWORK =====================
+function send(d){ if(conn&&conn.open) conn.send(d); }
+
+function onData(d){
+  if(d.type==='selectGame'){ startGame(d.game); return; }
+  if(d.type==='chat'){ addChat(d.name, d.text, false); return; }
+  if(d.type==='restart'){ startGame(currentGame); return; }
+
+  // Sumo runs on the host only; clients send input, not competing physics updates.
+  if(d.type==='sumoInput'){
+    if(isHost && currentGame==='sumo') sumoRemoteKeys=d.keys||{};
+    return;
+  }
+  if(d.type==='sumoState'){
+    if(!isHost && currentGame==='sumo'){
+      if(d.p1 && d.p2){ sumo.p1=d.p1; sumo.p2=d.p2; renderSumo(); }
+      if(d.over){
+        gameOver=true;
+        setStatus(d.winner===mySymbol?'Ти переміг! 🎉':'Тебе виштовхнули', d.winner===mySymbol);
+        btnAgain.classList.remove('hidden');
+        stopSumo();
+      }
+    }
+    return;
+  }
+
+  // Memory cards are validated and shuffled by the host.
+  if(d.type==='memoryMove'){
+    if(isHost && currentGame==='memory') applyMemoryMove(d.i,true);
+    return;
+  }
+  if(d.type==='memoryState'){
+    if(!isHost && currentGame==='memory'){
+      memoryPending=false;
+      memoryState=d.state;
+      renderMemory();
+    }
+    return;
+  }
+
+  // Number guessing is authoritative on the host.
+  if(d.type==='guessMove'){
+    if(isHost && currentGame==='guess' && guessState && !guessState.finished && d.turn===guessState.turn && guessState.turn==='O') applyGuess(Number(d.value),'O');
+    return;
+  }
+  if(d.type==='guessState'){
+    if(!isHost && currentGame==='guess'){ guessState=d.state; renderGuess(); }
+    return;
+  }
+
+  // Existing game messages.
+  if(currentGame==='ttt' && d.type==='move') makeTTT(d.i, d.s, false);
+  if(currentGame==='c4' && d.type==='move') makeC4(d.col, d.s, false);
+  if(currentGame==='rps' && d.type==='rps') handleRPS(d.choice, false);
+}
+
+// ===================== CHAT =====================
+function addChat(name, text, me){
+  const div=document.createElement('div');
+  div.className='chat-msg'+(me?' me':'');
+  div.innerHTML=`<span class="n">${name}:</span> ${esc(text)}`;
+  chatMsgs.appendChild(div);
+  chatMsgs.scrollTop=chatMsgs.scrollHeight;
+}
+function esc(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+$('btn-send').onclick=()=>{
+  const t=chatIn.value.trim(); if(!t||!connected)return;
+  addChat(mySymbol,t,true); send({type:'chat',name:mySymbol,text:t}); chatIn.value='';
+};
+chatIn.onkeydown=e=>{ if(e.key==='Enter')$('btn-send').onclick(); };
+
+$('btn-again').onclick=()=>{ send({type:'restart'}); startGame(currentGame); };
+$('btn-back-lobby').onclick=()=>{
+  stopSumo();
+  if(peer)peer.destroy();
+  conn=null; connected=false;
+  show(lobby);
+};
+
+// ===================== TTT =====================
+function initTTT(){
+  const area=$('area-ttt');
+  area.classList.remove('hidden');
+  area.innerHTML='<div class="board-ttt" id="ttt-board"></div>';
+  board=Array(9).fill(null);
+  const b=$('ttt-board');
+  for(let i=0;i<9;i++){
+    const c=document.createElement('div');
+    c.className='cell-ttt'; c.dataset.i=i;
+    c.onclick=()=>{ if(gameOver||board[i]||currentTurn!==mySymbol)return; makeTTT(i,mySymbol,true); };
+    b.appendChild(c);
+  }
+  setStatus(currentTurn===mySymbol?'Твій хід':'Хід суперника...');
+}
+
+function makeTTT(i,s,sendIt){
+  if(board[i]||gameOver)return;
+  board[i]=s;
+  const cell=document.querySelector(`#ttt-board .cell-ttt[data-i="${i}"]`);
+  cell.textContent=s; cell.classList.add(s.toLowerCase());
+  if(sendIt) send({type:'move',i,s});
+
+  const w=checkTTT();
+  if(w){
+    gameOver=true;
+    w.combo.forEach(x=>document.querySelector(`#ttt-board .cell-ttt[data-i="${x}"]`).classList.add('win'));
+    document.querySelectorAll('#ttt-board .cell-ttt').forEach(c=>c.classList.add('disabled'));
+    setStatus(w.s===mySymbol?'Ти переміг! 🎉':'Ти програв', w.s===mySymbol);
+    btnAgain.classList.remove('hidden');
+    return;
+  }
+  if(board.every(x=>x)){ gameOver=true; setStatus('Нічия!'); btnAgain.classList.remove('hidden'); return; }
+  currentTurn=currentTurn==='X'?'O':'X';
+  setStatus(currentTurn===mySymbol?'Твій хід':'Хід суперника...');
+}
+
+function checkTTT(){
+  const L=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  for(const [a,b,c] of L) if(board[a]&&board[a]===board[b]&&board[a]===board[c]) return {s:board[a],combo:[a,b,c]};
+  return null;
+}
+
+// ===================== CONNECT 4 =====================
+function initC4(){
+  const area=$('area-c4');
+  area.classList.remove('hidden');
+  area.innerHTML='<div class="board-c4" id="c4-board"></div>';
+  board=Array(6).fill(null).map(()=>Array(7).fill(null));
+  const b=$('c4-board');
+  for(let r=0;r<6;r++) for(let c=0;c<7;c++){
+    const cell=document.createElement('div');
+    cell.className='cell-c4'; cell.dataset.r=r; cell.dataset.c=c;
+    cell.onclick=()=>clickC4(c);
+    b.appendChild(cell);
+  }
+  setStatus(currentTurn===mySymbol?'Твій хід':'Хід суперника...');
+}
+
+function clickC4(col){
+  if(gameOver||currentTurn!==mySymbol)return;
+  makeC4(col, mySymbol, true);
+}
+
+function makeC4(col, s, sendIt){
+  if(gameOver)return;
+  let row=-1;
+  for(let r=5;r>=0;r--) if(!board[r][col]){ row=r; break; }
+  if(row<0)return;
+  board[row][col]=s;
+  const cell=document.querySelector(`#c4-board .cell-c4[data-r="${row}"][data-c="${col}"]`);
+  cell.classList.add(s.toLowerCase());
+  if(sendIt) send({type:'move',col,s});
+
+  if(checkC4(row,col,s)){
+    gameOver=true;
+    setStatus(s===mySymbol?'Ти переміг! 🎉':'Ти програв', s===mySymbol);
+    btnAgain.classList.remove('hidden');
+    return;
+  }
+  if(board.every(row=>row.every(c=>c))){ gameOver=true; setStatus('Нічия!'); btnAgain.classList.remove('hidden'); return; }
+  currentTurn=currentTurn==='X'?'O':'X';
+  setStatus(currentTurn===mySymbol?'Твій хід':'Хід суперника...');
+}
+
+function checkC4(r,c,s){
+  const dirs=[[0,1],[1,0],[1,1],[1,-1]];
+  for(const [dr,dc] of dirs){
+    let cnt=1;
+    for(let i=1;i<4;i++){ const nr=r+dr*i,nc=c+dc*i; if(nr<0||nr>5||nc<0||nc>6||board[nr][nc]!==s)break; cnt++; }
+    for(let i=1;i<4;i++){ const nr=r-dr*i,nc=c-dc*i; if(nr<0||nr>5||nc<0||nc>6||board[nr][nc]!==s)break; cnt++; }
+    if(cnt>=4) return true;
+  }
+  return false;
+}
+
+// ===================== RPS =====================
+function initRPS(){
+  const area=$('area-rps');
+  area.classList.remove('hidden');
+  area.innerHTML=`
+    <div class="rps-score" id="rps-score">0 : 0</div>
+    <div class="rps-result" id="rps-result">Обери свій хід</div>
+    <div class="rps-choices">
+      <button class="rps-btn" data-v="rock">✊</button>
+      <button class="rps-btn" data-v="scissors">✌️</button>
+      <button class="rps-btn" data-v="paper">✋</button>
+    </div>
+    <p class="info">До 3 перемог</p>
+  `;
+  rpsMy=null; rpsOpp=null; rpsScore={X:0,O:0};
+  area.querySelectorAll('.rps-btn').forEach(b=>{
+    b.onclick=()=>{
+      if(gameOver||rpsMy)return;
+      rpsMy=b.dataset.v;
+      area.querySelectorAll('.rps-btn').forEach(x=>x.classList.remove('selected'));
+      b.classList.add('selected');
+      send({type:'rps', choice:rpsMy});
+      $('rps-result').textContent='Чекаємо суперника...';
+      tryResolveRPS();
+    };
+  });
+  setStatus('Обери жест');
+}
+
+function handleRPS(choice, isMe){
+  if(isMe) rpsMy=choice; else rpsOpp=choice;
+  tryResolveRPS();
+}
+
+function tryResolveRPS(){
+  if(!rpsMy||!rpsOpp)return;
+  const map={rock:'✊',scissors:'✌️',paper:'✋'};
+  const res=whoWins(rpsMy,rpsOpp);
+  let msg=`Ти ${map[rpsMy]} vs ${map[rpsOpp]} суперник — `;
+  if(res===0) msg+='Нічия';
+  else if(res===1){ msg+='Ти виграв раунд!'; rpsScore[mySymbol]++; }
+  else { msg+='Ти програв раунд'; rpsScore[mySymbol==='X'?'O':'X']++; }
+  $('rps-result').textContent=msg;
+  $('rps-score').textContent=`${rpsScore.X} : ${rpsScore.O}`;
+
+  if(rpsScore.X>=3||rpsScore.O>=3){
+    gameOver=true;
+    const win=rpsScore[mySymbol]>=3;
+    setStatus(win?'Ти переміг серію! 🎉':'Ти програв серію', win);
+    btnAgain.classList.remove('hidden');
+  } else {
+    setTimeout(()=>{
+      rpsMy=null; rpsOpp=null;
+      document.querySelectorAll('.rps-btn').forEach(b=>b.classList.remove('selected'));
+      $('rps-result').textContent='Обери свій хід';
+      setStatus('Обери жест');
+    },1600);
+  }
+}
+
+function whoWins(a,b){
+  if(a===b)return 0;
+  if((a==='rock'&&b==='scissors')||(a==='scissors'&&b==='paper')||(a==='paper'&&b==='rock')) return 1;
+  return -1;
+}
+
+// ===================== SUMO =====================
+function initSumo(){
+  const area=$('area-sumo');
+  area.classList.remove('hidden');
+  area.innerHTML=`
+    <div class="sumo-area" id="sumo-area">
+      <div class="sumo-player p1" id="sumo-p1">X</div>
+      <div class="sumo-player p2" id="sumo-p2">O</div>
+    </div>
+    <div class="sumo-controls">
+      <div></div><button type="button" class="btn btn-secondary" data-d="up" aria-label="Вгору">▲</button><div></div>
+      <button type="button" class="btn btn-secondary" data-d="left" aria-label="Ліворуч">◀</button>
+      <button type="button" class="btn btn-secondary" data-d="down" aria-label="Вниз">▼</button>
+      <button type="button" class="btn btn-secondary" data-d="right" aria-label="Праворуч">▶</button>
+    </div>
+    <p class="info" style="margin-top:10px">Виштовхни суперника за коло · WASD / стрілки або кнопки</p>
+  `;
+  sumo={p1:{x:0.35,y:0.5}, p2:{x:0.65,y:0.5}, keys:{}};
+  sumoRemoteKeys={}; sumoLastBroadcast=0;
+  gameOver=false;
+  setStatus('Штовхай!');
+  renderSumo();
+
+  area.querySelectorAll('[data-d]').forEach(btn=>{
+    const dir=btn.dataset.d;
+    const down=e=>{ e.preventDefault(); setSumoKey(dir,true); };
+    const up=e=>{ e.preventDefault(); setSumoKey(dir,false); };
+    btn.addEventListener('pointerdown',down);
+    btn.addEventListener('pointerup',up);
+    btn.addEventListener('pointercancel',up);
+    btn.addEventListener('pointerleave',up);
+    btn.addEventListener('contextmenu',e=>e.preventDefault());
+  });
+
+  const keyMap={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',w:'up',s:'down',a:'left',d:'right'};
+  window.onkeydown=e=>{
+    const dir=keyMap[e.key]||keyMap[e.key.toLowerCase()];
+    if(dir){ e.preventDefault(); setSumoKey(dir,true); }
+  };
+  window.onkeyup=e=>{
+    const dir=keyMap[e.key]||keyMap[e.key.toLowerCase()];
+    if(dir){ e.preventDefault(); setSumoKey(dir,false); }
+  };
+  window.onblur=()=>{ sumo.keys={}; if(!isHost) send({type:'sumoInput',keys:{}}); };
+  sumoRAF=requestAnimationFrame(sumoLoop);
+}
+
+function setSumoKey(dir,pressed){
+  if(!sumo.keys) sumo.keys={};
+  sumo.keys[dir]=pressed;
+  if(!isHost) send({type:'sumoInput',keys:{...sumo.keys}});
+}
+
+function sumoLoop(now=0){
+  if(gameOver||currentGame!=='sumo') return;
+  // Only the room host simulates movement and collision. This prevents positions
+  // from being overwritten by stale client snapshots and keeps both views in sync.
+  if(isHost){
+    const move=(p,keys)=>{
+      let dx=(keys.right?1:0)-(keys.left?1:0);
+      let dy=(keys.down?1:0)-(keys.up?1:0);
+      const mag=Math.hypot(dx,dy);
+      if(mag){ dx/=mag; dy/=mag; p.x+=dx*0.0068; p.y+=dy*0.0068; }
+    };
+    move(sumo.p1,sumo.keys||{});
+    move(sumo.p2,sumoRemoteKeys||{});
+
+    // Solid circle collision in pixels (not normalized coordinates): player sprites
+    // are 48px wide, so their centers must stay at least one sprite diameter apart.
+    // Resolve the FULL overlap every frame; a small impulse alone lets them tunnel
+    // through each other when both players move toward one another.
+    const arena=$('sumo-area');
+    const rect=arena ? arena.getBoundingClientRect() : {width:320,height:320};
+    const width=Math.max(1,rect.width), height=Math.max(1,rect.height);
+    const dx=(sumo.p1.x-sumo.p2.x)*width;
+    const dy=(sumo.p1.y-sumo.p2.y)*height;
+    const dist=Math.hypot(dx,dy);
+    const minDist=50; // 48px sprites + 2px safety gap
+    if(dist<minDist){
+      let nx, ny;
+      if(dist>0.001){ nx=dx/dist; ny=dy/dist; }
+      else { nx=1; ny=0; } // stable fallback if both centers exactly overlap
+      const correction=(minDist-dist)/2+0.25;
+      sumo.p1.x+=(nx*correction)/width;
+      sumo.p1.y+=(ny*correction)/height;
+      sumo.p2.x-=(nx*correction)/width;
+      sumo.p2.y-=(ny*correction)/height;
+    }
+
+    const out=p=>Math.hypot(p.x-0.5,p.y-0.5)>0.445;
+    if(out(sumo.p1)){ finishSumo('X'); return; }
+    if(out(sumo.p2)){ finishSumo('O'); return; }
+
+    if(now-sumoLastBroadcast>32){
+      send({type:'sumoState',p1:sumo.p1,p2:sumo.p2,over:false});
+      sumoLastBroadcast=now;
+    }
+  }
+  renderSumo();
+  sumoRAF=requestAnimationFrame(sumoLoop);
+}
+
+function finishSumo(loser){
+  gameOver=true;
+  const winner=loser==='X'?'O':'X';
+  send({type:'sumoState',p1:sumo.p1,p2:sumo.p2,over:true,winner});
+  setStatus(winner===mySymbol?'Ти переміг! 🎉':'Тебе виштовхнули',winner===mySymbol);
+  btnAgain.classList.remove('hidden');
+  renderSumo();
+  stopSumo();
+}
+
+function renderSumo(){
+  const p1=$('sumo-p1'), p2=$('sumo-p2');
+  if(!p1||!sumo.p1||!sumo.p2)return;
+  p1.style.left=(sumo.p1.x*100)+'%'; p1.style.top=(sumo.p1.y*100)+'%';
+  p2.style.left=(sumo.p2.x*100)+'%'; p2.style.top=(sumo.p2.y*100)+'%';
+}
+
+function stopSumo(){
+  if(sumoRAF) cancelAnimationFrame(sumoRAF);
+  sumoRAF=null;
+  window.onkeydown=null; window.onkeyup=null; window.onblur=null;
+  if(sumo && sumo.keys) sumo.keys={};
+  sumoRemoteKeys={};
+}
+
+// ===================== MEMORY PAIRS =====================
+const MEMORY_ICONS=['🌙','🚀','🍉','🐸','👾','🎧','🔥','🦊'];
+function shuffle(list){
+  const a=list.slice();
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+function initMemory(){
+  const area=$('area-memory');
+  area.classList.remove('hidden');
+  if(isHost){
+    const cards=shuffle([...MEMORY_ICONS,...MEMORY_ICONS]);
+    memoryState={cards,matched:Array(16).fill(false),revealed:[],scores:{X:0,O:0},turn:'X',busy:false,finished:false};
+    renderMemory();
+    broadcastMemory();
+  }else{
+    memoryState=null;
+    area.innerHTML='<p class="info">Завантажуємо поле від господаря кімнати…</p>';
+    setStatus('Готуємо картки…');
+  }
+}
+
+function memoryClick(i){
+  const st=memoryState;
+  if(!st||st.finished||st.busy||memoryPending||st.turn!==mySymbol||st.matched[i]||st.revealed.includes(i))return;
+  if(!isHost){ memoryPending=true; renderMemory(); send({type:'memoryMove',i}); return; }
+  applyMemoryMove(i);
+}
+
+function applyMemoryMove(i,fromRemote=false){
+  const st=memoryState;
+  if(!isHost||!st)return;
+  // X moves locally on the host; O moves arrive through the data channel.
+  if(st.finished||st.busy||st.turn!==(fromRemote?'O':'X')||!Number.isInteger(i)||i<0||i>=16||st.matched[i]||st.revealed.includes(i)){
+    if(fromRemote) broadcastMemory(); // reject stale clicks and release the client's pending state
+    return;
+  }
+  st.revealed.push(i);
+  if(st.revealed.length===1){ renderMemory(); broadcastMemory(); return; }
+  const [a,b]=st.revealed;
+  if(st.cards[a]===st.cards[b]){
+    st.matched[a]=true; st.matched[b]=true; st.scores[st.turn]++; st.revealed=[];
+    if(st.matched.every(Boolean)) st.finished=true;
+    else st.turn=st.turn==='X'?'O':'X';
+    renderMemory(); broadcastMemory();
+    return;
+  }
+  st.busy=true;
+  renderMemory(); broadcastMemory();
+  if(memoryTimer) clearTimeout(memoryTimer);
+  memoryTimer=setTimeout(()=>{
+    if(currentGame!=='memory'||!memoryState)return;
+    memoryState.revealed=[]; memoryState.busy=false;
+    memoryState.turn=memoryState.turn==='X'?'O':'X';
+    renderMemory(); broadcastMemory();
+    memoryTimer=null;
+  },950);
+}
+
+function broadcastMemory(){ if(isHost&&memoryState) send({type:'memoryState',state:memoryState}); }
+
+function renderMemory(){
+  const area=$('area-memory');
+  if(!area)return;
+  area.classList.remove('hidden');
+  const st=memoryState;
+  if(!st){ area.innerHTML='<p class="info">Завантажуємо поле…</p>'; return; }
+  area.innerHTML=`
+    <div class="memory-top"><span>🔹 X: <b>${st.scores.X}</b> · Рожевий O: <b>${st.scores.O}</b></span><span>Знайди всі пари</span></div>
+    <div class="memory-grid" id="memory-grid"></div>
+    <p class="info">Кожна знайдена пара приносить бал. Ходи по черзі.</p>
+  `;
+  const grid=$('memory-grid');
+  st.cards.forEach((icon,i)=>{
+    const opened=st.revealed.includes(i)||st.matched[i];
+    const btn=document.createElement('button');
+    btn.type='button'; btn.className='memory-card'+(opened?' open':'')+(st.matched[i]?' matched':'');
+    btn.textContent=opened?icon:'?';
+    btn.setAttribute('aria-label',opened?`Картка ${icon}`:'Закрита картка');
+    btn.disabled=st.finished||st.busy||memoryPending||st.turn!==mySymbol||st.matched[i]||st.revealed.includes(i);
+    btn.onclick=()=>memoryClick(i);
+    grid.appendChild(btn);
+  });
+  if(st.finished){
+    const winner=st.scores.X===st.scores.O?null:(st.scores.X>st.scores.O?'X':'O');
+    setStatus(!winner?'Нічия! 🤝':winner===mySymbol?'Ти переміг! 🎉':'Ти програв',winner===mySymbol);
+    btnAgain.classList.remove('hidden');
+  }else if(st.busy){ setStatus('Не збіглося — міняємо гравця…'); }
+  else setStatus(st.turn===mySymbol?'Твій хід — знайди пару':'Хід суперника…');
+}
+
+// ===================== GUESS THE NUMBER =====================
+function initGuess(){
+  const area=$('area-guess'); area.classList.remove('hidden');
+  guessState={secret:Math.floor(Math.random()*20)+1,turn:'X',attempts:[],maxAttempts:10,finished:false,result:'Загадано число від 1 до 20. Вгадай його за підказками!'};
+  if(isHost) sendGuessState(); renderGuess();
+}
+function makeGuess(value){
+  if(!guessState||guessState.finished||guessState.turn!==mySymbol||!Number.isInteger(value)||value<1||value>20)return;
+  if(isHost) applyGuess(value,'X'); else send({type:'guessMove',turn:guessState.turn,value});
+}
+function applyGuess(value,symbol){
+  if(!isHost||!guessState||guessState.finished||guessState.turn!==symbol||!Number.isInteger(value)||value<1||value>20)return;
+  const secret=guessState.secret;
+  guessState.attempts.push({symbol,value,hint:value===secret?'ВГАДАВ!':value<secret?'Занадто мало ↑':'Занадто багато ↓'});
+  if(value===secret){guessState.finished=true;guessState.result=`Гравець ${symbol} вгадав число ${secret}! 🎉`;}
+  else if(guessState.attempts.length>=guessState.maxAttempts){guessState.finished=true;guessState.result=`Спроби закінчилися! Було загадано ${secret}.`;}
+  else {guessState.turn=symbol==='X'?'O':'X';guessState.result=`${guessState.turn}, твоя черга!`;}
+  renderGuess();sendGuessState();
+}
+function sendGuessState(){if(isHost&&guessState){const {secret,...publicState}=guessState;send({type:'guessState',state:publicState});}}
+function renderGuess(){
+  const area=$('area-guess');if(!area||!guessState)return;area.classList.remove('hidden');
+  const mine=guessState.turn===mySymbol&&!guessState.finished;
+  area.innerHTML=`<div class="memory-top"><span>Діапазон 1–20</span><span>Спроби: ${guessState.attempts.length}/${guessState.maxAttempts}</span></div>
+  <div class="highcard-result">${esc(guessState.result)}</div>
+  <div style="display:flex;gap:8px;max-width:340px;margin:12px auto"><input id="guess-input" type="number" min="1" max="20" placeholder="1–20" style="margin:0;text-transform:none;letter-spacing:normal" ${mine?'':'disabled'}><button class="btn btn-primary" id="guess-send" style="width:auto;margin:0" ${mine?'':'disabled'}>Вгадати</button></div>
+  <div style="display:grid;gap:6px;margin-top:10px">${guessState.attempts.map((a,i)=>`<div class="highcard-result" style="text-align:left">#${i+1} · ${a.symbol}: <b>${a.value}</b> — ${esc(a.hint)}</div>`).join('')}</div>`;
+  const input=$('guess-input'),button=$('guess-send');const submit=()=>{const n=Number(input.value);if(input.value.trim()!==''&&n>=1&&n<=20)makeGuess(n);};
+  button.onclick=submit;input.onkeydown=e=>{if(e.key==='Enter')submit();};
+  setStatus(guessState.finished?guessState.result:mine?'Твій хід — вгадай число!':'Хід суперника…');if(guessState.finished)btnAgain.classList.remove('hidden');
+}
+
+// ===================== HELPERS =====================
+function setStatus(t, win=false){
+  gStatus.textContent=t;
+  gStatus.classList.toggle('win',!!win);
+}
+</script>
+</body>
+</html>
